@@ -1,0 +1,19 @@
+{
+  "name": "pl.idreams.ios-local-pods",
+  "version": "1.0.0",
+  "displayName": "iOS Local Pods",
+  "description": "Serves CocoaPods from a project folder with the podspec iOS deployment target raised to the project's (Xcode 27 rejects pod targets below iOS 15.0), and keeps External Dependency Manager's CocoaPods integration enabled for iOS builds. Adds Assets > External Dependency Manager > iOS Resolver > Refresh Local Pods and Project Settings > iOS Local Pods.",
+  "unity": "2021.3",
+  "author": {
+    "name": "iDreams"
+  },
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.1"
+  },
+  "keywords": [
+    "ios",
+    "cocoapods",
+    "edm4u",
+    "xcode"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "name": "iDreams.IOSLocalPods.Editor",
+  "rootNamespace": "iDreams.IOSLocalPods",
+  "references": [],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
