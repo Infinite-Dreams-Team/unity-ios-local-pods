@@ -32,6 +32,25 @@ namespace iDreams.IOSLocalPods
     private const string CdnUrl = "https://cdn.cocoapods.org/";
     private const string Title = "Refresh Local Pods";
 
+    public class cRefreshResult
+    {
+      public readonly List<string> _Lines = new List<string>();
+      public readonly List<string> _Failed = new List<string>();
+      public readonly List<string> _Warnings = new List<string>();
+
+      public override string ToString()
+      {
+        return string.Join("\n", _Lines.Concat(_Warnings));
+      }
+    }
+
+    private class UnsupportedPodException : Exception
+    {
+      public UnsupportedPodException(string message) : base(message)
+      {
+      }
+    }
+
     [MenuItem(MenuRoot + "Refresh Local Pods")]
     public static void RefreshLocalPods()
     {
@@ -41,61 +60,99 @@ namespace iDreams.IOSLocalPods
         return;
       }
 
-      StringBuilder report = new StringBuilder();
-      bool failed = false;
+      try
+      {
+        cRefreshResult result = RefreshPods(settings, settings.ValidPods.ToList());
+        if (settings._EnforceCocoaPodsSettings)
+        {
+          ApplyCocoaPodsSettings();
+        }
+        LogResult(result);
+        EditorUtility.DisplayDialog(Title, result.ToString(), "OK");
+      }
+      catch (OperationCanceledException)
+      {
+        Debug.LogWarning("[IOSLocalPods] Cancelled.");
+      }
+    }
+
+    /// <summary>
+    /// Downloads the given pods, then switches *Dependencies.xml to every pod installed locally. No dialogs
+    /// (the build preprocessor uses it too). Pods without an http source are dropped from the settings and
+    /// stay remote. Throws OperationCanceledException when cancelled from the progress bar.
+    /// </summary>
+    public static cRefreshResult RefreshPods(IOSLocalPodsSettings settings, List<IOSLocalPodsSettings.cPod> pods)
+    {
+      cRefreshResult result = new cRefreshResult();
       try
       {
         AdoptRequirementsFromXml(settings);
-        foreach (IOSLocalPodsSettings.cPod pod in settings.ValidPods.ToList())
+        foreach (IOSLocalPodsSettings.cPod pod in pods)
         {
           try
           {
-            report.AppendLine(RefreshPod(settings, pod));
+            result._Lines.Add(RefreshPod(settings, pod, result));
           }
           catch (OperationCanceledException)
           {
             throw;
           }
+          catch (UnsupportedPodException e)
+          {
+            settings._Pods.Remove(pod);
+            settings.Save();
+            result._Lines.Add(pod._Name + ": kept remote, removed from the list - " + e.Message);
+          }
           catch (Exception e)
           {
-            failed = true;
-            report.AppendLine(pod._Name + ": FAILED - " + e.Message);
+            result._Failed.Add(pod._Name);
+            result._Lines.Add(pod._Name + ": FAILED - " + e.Message);
             Debug.LogException(e);
           }
         }
 
         foreach (string file in ApplyToDependencyXmls(settings))
         {
-          report.AppendLine("Switched to local pods: " + file);
+          result._Lines.Add("Switched to local pods: " + file);
         }
         foreach (string name in UndeclaredPods(settings))
         {
-          report.AppendLine(name + ": not declared by any *Dependencies.xml, so it is not used");
+          result._Lines.Add(name + ": not declared by any *Dependencies.xml, so it is not used");
         }
-        if (settings._EnforceCocoaPodsSettings)
-        {
-          ApplyCocoaPodsSettings();
-        }
-
-        if (failed)
-        {
-          Debug.LogError("[IOSLocalPods] Refresh finished with errors:\n" + report);
-        }
-        else
-        {
-          Debug.Log("[IOSLocalPods] Local pods refreshed:\n" + report);
-        }
-        EditorUtility.DisplayDialog(Title, report.ToString(), "OK");
-      }
-      catch (OperationCanceledException)
-      {
-        Debug.LogWarning("[IOSLocalPods] Cancelled.\n" + report);
       }
       finally
       {
         EditorUtility.ClearProgressBar();
         DeleteDirectory(TempDir);
       }
+      return result;
+    }
+
+    public static void LogResult(cRefreshResult result)
+    {
+      string lines = string.Join("\n", result._Lines);
+      if (result._Failed.Count > 0)
+      {
+        Debug.LogError("[IOSLocalPods] Refresh finished with errors:\n" + lines);
+      }
+      else
+      {
+        Debug.Log("[IOSLocalPods] Local pods refreshed:\n" + lines);
+      }
+      foreach (string warning in result._Warnings)
+      {
+        Debug.LogWarning("[IOSLocalPods] " + warning);
+      }
+    }
+
+    public static bool IsInstalled(IOSLocalPodsSettings settings, string name)
+    {
+      return File.Exists(settings.PodspecPath(name));
+    }
+
+    public static List<IOSLocalPodsSettings.cPod> MissingPods(IOSLocalPodsSettings settings)
+    {
+      return settings.ValidPods.Where(p => !IsInstalled(settings, p._Name)).ToList();
     }
 
     [MenuItem(MenuRoot + "Local Pods Settings")]
@@ -221,13 +278,17 @@ namespace iDreams.IOSLocalPods
     }
 
     /// <summary>
-    /// Points every configured pod's iosPod entry at its local folder: sets path=, drops version= (CocoaPods
-    /// rejects a version on a :path pod) and <sources>. Returns the files changed. Plugin updates overwrite
-    /// these XMLs; the build preprocessor calls this again.
+    /// Points the iosPod entry of every configured pod that is installed locally at its folder: sets path=,
+    /// drops version= (CocoaPods rejects a version on a :path pod) and <sources>. Pods not installed stay
+    /// remote, so a failed download never leaves a path to a missing folder. Returns the files changed.
+    /// Plugin updates overwrite these XMLs; the build preprocessor calls this again.
     /// </summary>
     public static List<string> ApplyToDependencyXmls(IOSLocalPodsSettings settings)
     {
-      Dictionary<string, string> paths = settings.ValidPods.ToDictionary(p => p._Name, p => settings.PodDirectory(p._Name));
+      Dictionary<string, string> paths = settings.ValidPods
+        .Where(p => IsInstalled(settings, p._Name))
+        .GroupBy(p => p._Name)
+        .ToDictionary(g => g.Key, g => settings.PodDirectory(g.Key));
       List<string> changedFiles = new List<string>();
       foreach (string file in DependencyXmlFiles())
       {
@@ -317,7 +378,7 @@ namespace iDreams.IOSLocalPods
 
     // ---------- Pods ----------
 
-    private static string RefreshPod(IOSLocalPodsSettings settings, IOSLocalPodsSettings.cPod pod)
+    private static string RefreshPod(IOSLocalPodsSettings settings, IOSLocalPodsSettings.cPod pod, cRefreshResult result)
     {
       string name = pod._Name.Trim();
       string requirement = pod._Requirement ?? "";
@@ -342,7 +403,7 @@ namespace iDreams.IOSLocalPods
       string archiveUrl = (string)spec["source"]?["http"];
       if (string.IsNullOrEmpty(archiveUrl))
       {
-        throw new Exception(version + " has no http source (git/other sources are not supported)");
+        throw new UnsupportedPodException(version + " has no http source (git/other sources are not supported)");
       }
 
       string work = Path.Combine(TempDir, name);
@@ -362,15 +423,15 @@ namespace iDreams.IOSLocalPods
       Directory.CreateDirectory(settings._PodsDirectory);
       Directory.Move(work, destination);
 
-      string result = name + ": " + (previousVersion ?? "-") + " -> " + version + " (iOS " + deploymentTarget + ")";
       HashSet<string> local = new HashSet<string>(settings.ValidPods.Select(p => p._Name));
       List<string> remoteDependencies = (spec["dependencies"] as JObject)?.Properties()
         .Select(p => p.Name.Split('/')[0]).Distinct().Where(d => !local.Contains(d)).ToList();
       if (remoteDependencies != null && remoteDependencies.Count > 0)
       {
-        result += "; remote dependencies keep their own deployment target: " + string.Join(", ", remoteDependencies);
+        result._Warnings.Add(name + " depends on remote pods that keep their own iOS deployment target and may fail in Xcode: "
+          + string.Join(", ", remoteDependencies) + ". Add them to the list if they have an http source, or drop " + name + " if this platform does not use it.");
       }
-      return result;
+      return name + ": " + (previousVersion ?? "-") + " -> " + version + " (iOS " + deploymentTarget + ")";
     }
 
     public static string InstalledVersion(string name)

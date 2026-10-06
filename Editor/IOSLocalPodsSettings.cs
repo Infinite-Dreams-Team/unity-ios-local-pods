@@ -29,6 +29,8 @@ namespace iDreams.IOSLocalPods
     public string _DeploymentTarget = "";
     // Force EDM's Podfile generation, Workspace integration and pod install on every iOS build.
     public bool _EnforceCocoaPodsSettings = true;
+    // On iOS builds, offer to generate missing local pods (or set them up from *Dependencies.xml).
+    public bool _CheckOnBuild = true;
     public List<cPod> _Pods = new List<cPod>();
 
     private static IOSLocalPodsSettings m_Instance;
@@ -120,7 +122,29 @@ namespace iDreams.IOSLocalPods
       settings._EnforceCocoaPodsSettings = EditorGUILayout.Toggle(new GUIContent("Enforce CocoaPods Settings",
         "On every iOS build turn on EDM's Podfile generation, Workspace integration and pod install. Runs first (callbackOrder 0), so a later preprocessor can still turn them off, e.g. for an offline build."),
         settings._EnforceCocoaPodsSettings);
+      settings._CheckOnBuild = EditorGUILayout.Toggle(new GUIContent("Check on iOS Build",
+        "When local pods are missing (or none are set up yet), an iOS build asks to generate them: Generate / Cancel Build / Generate + Ignore Folder. Batch mode generates without asking."),
+        settings._CheckOnBuild);
       save |= EditorGUI.EndChangeCheck();
+
+      VcsIgnore.cTarget ignore = VcsIgnore.Find(settings._PodsDirectory);
+      EditorGUILayout.BeginHorizontal();
+      EditorGUILayout.PrefixLabel(new GUIContent("Version Control", "Ignoring the pods directory keeps the downloaded frameworks out of the repository; every machine generates them on its first iOS build."));
+      if (ignore == null)
+      {
+        GUILayout.Label("no Plastic SCM workspace or git repository found", EditorStyles.miniLabel);
+      }
+      else if (VcsIgnore.IsIgnored(ignore))
+      {
+        GUILayout.Label(ignore._Pattern + " ignored in " + System.IO.Path.GetFileName(ignore._IgnoreFile) + " (" + ignore._Vcs + ")", EditorStyles.miniLabel);
+      }
+      else if (GUILayout.Button("Ignore " + ignore._Pattern + " in " + System.IO.Path.GetFileName(ignore._IgnoreFile)))
+      {
+        string message = VcsIgnore.Add(ignore);
+        Debug.Log("[IOSLocalPods] " + message);
+        EditorUtility.DisplayDialog("iOS Local Pods", message, "OK");
+      }
+      EditorGUILayout.EndHorizontal();
 
       EditorGUILayout.Space();
       EditorGUILayout.LabelField("Pods", EditorStyles.boldLabel);
