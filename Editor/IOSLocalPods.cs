@@ -163,19 +163,51 @@ namespace iDreams.IOSLocalPods
 
     // ---------- Dependencies.xml ----------
 
-    /// <summary>The *Dependencies.xml files EDM reads: Editor folders under Assets and embedded packages.</summary>
+    private const string PackageCacheDir = "Library/PackageCache/";
+
+    /// <summary>
+    /// The *Dependencies.xml files EDM reads: Editor folders under Assets and in every package of the project,
+    /// embedded (Packages/) or not (registry/git packages in Library/PackageCache, local file: packages).
+    /// Paths are project-relative when inside the project, absolute otherwise.
+    /// </summary>
     public static IEnumerable<string> DependencyXmlFiles()
     {
-      List<string> roots = new List<string> { "Assets" };
+      string projectRoot = Path.GetFullPath(".").Replace('\\', '/').TrimEnd('/') + "/";
+      HashSet<string> roots = new HashSet<string> { "Assets" };
       if (Directory.Exists("Packages"))
       {
-        roots.AddRange(Directory.GetDirectories("Packages"));
+        roots.UnionWith(Directory.GetDirectories("Packages").Select(d => d.Replace('\\', '/')));
+      }
+      foreach (UnityEditor.PackageManager.PackageInfo package in UnityEditor.PackageManager.PackageInfo.GetAllRegisteredPackages())
+      {
+        if (package.source == UnityEditor.PackageManager.PackageSource.BuiltIn || string.IsNullOrEmpty(package.resolvedPath))
+        {
+          continue;
+        }
+        roots.Add(ProjectRelative(package.resolvedPath, projectRoot));
       }
       return roots
+        .Where(Directory.Exists)
         .SelectMany(r => Directory.GetFiles(r, "*Dependencies.xml", SearchOption.AllDirectories))
-        .Select(f => f.Replace('\\', '/'))
+        .Select(f => ProjectRelative(f, projectRoot))
         .Where(f => f.Contains("/Editor/"))
+        .Distinct()
         .OrderBy(f => f);
+    }
+
+    private static string ProjectRelative(string path, string projectRoot)
+    {
+      string full = Path.GetFullPath(path).Replace('\\', '/');
+      return full.StartsWith(projectRoot, StringComparison.OrdinalIgnoreCase) ? full.Substring(projectRoot.Length) : full;
+    }
+
+    /// <summary>
+    /// True for an XML of a registry/git package: Unity restores the package cache on re-resolve, so the change
+    /// cannot be checked in and is re-applied on every iOS build.
+    /// </summary>
+    public static bool IsInPackageCache(string file)
+    {
+      return file.StartsWith(PackageCacheDir, StringComparison.OrdinalIgnoreCase);
     }
 
     private static IEnumerable<XmlElement> IosPods(XmlDocument document)
@@ -363,6 +395,11 @@ namespace iDreams.IOSLocalPods
 
     private static void SaveXml(XmlDocument document, string file)
     {
+      FileAttributes attributes = File.GetAttributes(file);
+      if ((attributes & FileAttributes.ReadOnly) != 0)
+      {
+        File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+      }
       byte[] raw = File.ReadAllBytes(file);
       bool bom = raw.Length >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF;
       XmlWriterSettings writerSettings = new XmlWriterSettings

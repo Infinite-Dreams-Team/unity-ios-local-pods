@@ -48,7 +48,14 @@ namespace iDreams.IOSLocalPods
       }
       foreach (string file in IOSLocalPods.ApplyToDependencyXmls(settings))
       {
-        Debug.LogWarning("[IOSLocalPods] Re-applied local pod paths to " + file + " (overwritten by a plugin update?). Check in the change.");
+        if (IOSLocalPods.IsInPackageCache(file))
+        {
+          Debug.Log("[IOSLocalPods] Applied local pod paths to " + file + " (package cache, re-applied on every iOS build).");
+        }
+        else
+        {
+          Debug.LogWarning("[IOSLocalPods] Re-applied local pod paths to " + file + " (overwritten by a plugin update?). Check in the change.");
+        }
       }
       foreach (string name in IOSLocalPods.UndeclaredPods(settings))
       {

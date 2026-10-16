@@ -29,21 +29,26 @@ GoogleUserMessagingPlatform, …) with `ios: 12.0`. The package:
 
 Pods that are not installed (failed download) are never switched to `path=`; they stay remote.
 
+`*Dependencies.xml` files are searched in `Editor` folders under `Assets` and in every package of the
+project: embedded (`Packages/`), registry / git (`Library/PackageCache/`) and local `file:` packages.
+Unity restores the package cache when it re-resolves packages, so XMLs there cannot be checked in;
+the build preprocessor re-applies `path=` to them on every iOS build.
+
 ## Install
 
 Add to `Packages/manifest.json` (private repo of Infinite-Dreams-Team):
 
 ```json
-"pl.idreams.ios-local-pods": "https://github.com/Infinite-Dreams-Team/unity-ios-local-pods.git#v1.1.0"
+"pl.idreams.ios-local-pods": "https://github.com/Infinite-Dreams-Team/unity-ios-local-pods.git#v1.2.0"
 ```
 
 Unity clones it with the system `git`, so every machine needs read access to the repo: run
 `gh auth login` and `gh auth setup-git` once (HTTPS), or use an SSH key / read-only deploy key with
-`git@github.com:Infinite-Dreams-Team/unity-ios-local-pods.git#v1.1.0`. Update by pointing `#` at a
+`git@github.com:Infinite-Dreams-Team/unity-ios-local-pods.git#v1.2.0`. Update by pointing `#` at a
 newer tag.
 
 Without GitHub access: `npm pack` this folder, copy the `.tgz` into the project's `Packages/`,
-check it in and reference it as `"file:pl.idreams.ios-local-pods-1.1.0.tgz"`.
+check it in and reference it as `"file:pl.idreams.ios-local-pods-1.2.0.tgz"`.
 
 ## Use
 
